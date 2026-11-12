@@ -213,10 +213,11 @@ def save_state(state):
 def send_telegram(text):
     if not TOKEN or not CHAT_ID:
         print("TELEGRAM_TOKEN / TELEGRAM_CHAT_ID не задані. Повідомлення:\n" + text)
-        return
+        return False
     r = requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage",
                       data={"chat_id": CHAT_ID, "text": text}, timeout=30)
     r.raise_for_status()
+    return True
 
 
 # ---------- фактичний стан світла з Telegram-каналу ----------
@@ -298,7 +299,9 @@ def check_once(force=False):
     core = "\n".join(l for l in msg.splitlines() if not l.startswith("🕒"))
     digest = hashlib.sha256(core.encode("utf-8")).hexdigest()
     if force or state.get("digest") != digest:
-        send_telegram(msg)
+        if not send_telegram(msg):
+            save_state(state)
+            return
         state.update({"digest": digest, "message": msg, "sent_at": kyiv_now().isoformat()})
         save_state(state)
         print("Графік змінився, повідомлення надіслано.")
