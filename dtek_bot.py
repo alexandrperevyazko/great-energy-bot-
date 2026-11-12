@@ -57,7 +57,7 @@ def kyiv_now():
 # і автоматично отримуємо cookie та CSRF-токен, як звичайний браузер.
 FETCH_JS = r"""
 async ({streetHint, house, updateFact}) => {
-  const ds = window.DisconSchedule || {};
+  const ds = (typeof DisconSchedule !== 'undefined' ? DisconSchedule : window.DisconSchedule) || {};
   const streets = ds.streets || [];
   const norm = s => (s || '').toLowerCase().replace(/[’'`]/g, '');
   const hint = norm(streetHint);
@@ -95,7 +95,7 @@ async ({streetHint, house, updateFact}) => {
               preset: ds.preset || null, updateTimestamp: json.updateTimestamp || null};
     }
   }
-  return {error: 'address_not_found', tried, streetsCount: streets.length};
+  return {error: 'address_not_found', tried, streetsCount: streets.length, similar: streets.filter(s => norm(s).includes('дніпр')).slice(0, 40)};
 }
 """
 
@@ -111,7 +111,7 @@ def fetch_schedule():
         page = ctx.new_page()
         page.goto(URL, wait_until="domcontentloaded", timeout=90_000)
         # чекаємо, поки антибот пропустить і сторінка підвантажить дані
-        page.wait_for_function("() => window.DisconSchedule && window.DisconSchedule.streets",
+        page.wait_for_function("() => typeof DisconSchedule !== 'undefined' && DisconSchedule.streets",
                                timeout=90_000)
         update_fact = kyiv_now().strftime("%d.%m.%Y %H:%M")
         result = page.evaluate(FETCH_JS, {"streetHint": STREET_HINT, "house": HOUSE,
@@ -119,6 +119,7 @@ def fetch_schedule():
         browser.close()
     if result.get("error"):
         raise RuntimeError(f"Адресу не знайдено на сайті: {result}")
+    print("Знайдено:", result.get("street"), result.get("house"), json.dumps(result.get("home"), ensure_ascii=False))
     return result
 
 
@@ -220,12 +221,16 @@ def send_telegram(text):
 
 # ---------- фактичний стан світла з Telegram-каналу ----------
 TG_CHANNEL = os.environ.get("TG_CHANNEL", "SvitloGreat")
-ON_WORDS = ("світло є", "з'явил", "з’явил", "появил", "увімкн", "включ", "дали світло", "🟢", "💡")
-OFF_WORDS = ("немає світла", "нема світла", "зникл", "вимкн", "відключ", "виключ", "🔴", "🕯")
+ON_WORDS = ("✅", "відновлено", "світло є", "з'явил", "з’явил", "появил", "увімкн", "включ", "дали світло", "🟢", "💡")
+OFF_WORDS = ("❌", "відключено", "немає світла", "нема світла", "зникл", "вимкн", "відключ", "виключ", "🔴", "🕯")
 
 
 def guess_status(text):
     t = text.lower()
+    if t.lstrip().startswith("✅") or "відновлено" in t:
+        return "🟢 Світло є"
+    if t.lstrip().startswith("❌") or "відключено" in t:
+        return "🔴 Світла немає"
     off = any(w in t for w in OFF_WORDS)
     on = any(w in t for w in ON_WORDS)
     if on and not off:
@@ -286,9 +291,8 @@ def check_once(force=False):
     if not force and time.time() - state.get("schedule_checked_at", 0) < 55 * 60:
         print("Графік перевірявся менше години тому.")
         return
-    state["schedule_checked_at"] = int(time.time())
-    save_state(state)
     res = fetch_schedule()
+    state["schedule_checked_at"] = int(time.time())
     msg = build_message(res)
     # порівнюємо без рядка «Оновлено», щоб не слати те саме
     core = "\n".join(l for l in msg.splitlines() if not l.startswith("🕒"))
