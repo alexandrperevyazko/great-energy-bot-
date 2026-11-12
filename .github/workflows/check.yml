@@ -1,7 +1,9 @@
 name: Great Energy 15є
+# Бот працює безперервно: кожен запуск триває ~5,5 год (канал кожні 2 хв, графік ДТЕК щогодини),
+# а в кінці сам запускає наступний. Розклад нижче лише страхує, якщо ланцюжок обірветься.
 on:
   schedule:
-    - cron: "*/15 * * * *"   # канал SvitloGreat кожні 15 хв, графік ДТЕК раз на годину
+    - cron: "17 */2 * * *"
   workflow_dispatch:
     inputs:
       force:
@@ -10,13 +12,14 @@ on:
         default: false
 permissions:
   contents: write
+  actions: write
 concurrency:
   group: bot
   cancel-in-progress: false
 jobs:
-  check:
+  run:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 350
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -25,11 +28,13 @@ jobs:
           cache: pip
       - run: pip install -r requirements.txt
       - run: python -m playwright install --with-deps chromium
-      - run: python dtek_bot.py
+      - name: Бот
+        run: python dtek_bot.py --loop
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          FORCE_SEND: ${{ inputs.force && '1' || '0' }}
+          LOOP_MINUTES: "320"
+          PYTHONUNBUFFERED: "1"
       - name: Зберегти стан
         if: always()
         run: |
@@ -39,3 +44,10 @@ jobs:
           git diff --cached --quiet && exit 0
           git commit -m "Оновити стан бота"
           git pull --rebase && git push
+      - name: Запустити наступний цикл
+        if: always()
+        run: |
+          curl -sS -X POST -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/workflows/check.yml/dispatches" \
+            -d '{"ref":"main"}'

@@ -302,13 +302,17 @@ def check_channel(state):
     if last_id is None:  # перший запуск: запам'ятати, але не спамити історією
         state["channel_last_id"] = newest
         return
-    for pid, txt, ts in sorted(p for p in posts if p[0] > last_id):
+    new_posts = sorted(p for p in posts if p[0] > last_id)
+    if len(new_posts) > 1:  # після перерви шлемо лише найсвіжіший стан, без старої історії
+        new_posts = new_posts[-1:]
+    for pid, txt, ts in new_posts:
         when = ""
         try:
             when = datetime.fromisoformat(ts).astimezone(kyiv_now().tzinfo).strftime("%d.%m %H:%M")
         except Exception:
             pass
         send_telegram(f"{guess_status(txt)} (за фактом){' · ' + when if when else ''}\n\n{txt}")
+        print(f"Переслано пост {pid} з каналу")
     state["channel_last_id"] = newest
 
 
@@ -322,7 +326,6 @@ def check_once(force=False):
     save_state(state)
     # графік ДТЕК перевіряємо не частіше ніж раз на годину
     if not force and time.time() - state.get("schedule_checked_at", 0) < 55 * 60:
-        print("Графік перевірявся менше години тому.")
         return
     res = fetch_schedule()
     state["schedule_checked_at"] = int(time.time())
@@ -344,21 +347,17 @@ def check_once(force=False):
 def main():
     force = "--test" in sys.argv
     if "--loop" in sys.argv:
-        # графік – щогодини, канал з фактом – кожні 5 хвилин
-        last_schedule = 0.0
-        while True:
+        # працює LOOP_MINUTES хвилин (0 = безкінечно): канал кожні 2 хв, графік ДТЕК щогодини
+        minutes = int(os.environ.get("LOOP_MINUTES", "0"))
+        deadline = time.time() + minutes * 60 if minutes else None
+        while deadline is None or time.time() < deadline:
             try:
-                if time.time() - last_schedule >= 3600:
-                    check_once(force)
-                    force = False
-                    last_schedule = time.time()
-                else:
-                    state = load_state()
-                    check_channel(state)
-                    save_state(state)
+                check_once(force)
+                force = False
             except Exception as e:
                 print(f"Помилка: {e}", file=sys.stderr)
-            time.sleep(300)
+            sys.stdout.flush()
+            time.sleep(120)
     else:
         check_once(force or os.environ.get("FORCE_SEND") == "1")
 
