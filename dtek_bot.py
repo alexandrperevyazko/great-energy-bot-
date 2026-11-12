@@ -341,6 +341,7 @@ def check_once(force=False):
         save_state(state)
         print("Графік змінився, повідомлення надіслано.")
     else:
+        save_state(state)
         print("Без змін.")
 
 
