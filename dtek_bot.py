@@ -220,6 +220,9 @@ def resolve_chat_id(state):
         return
     try:
         r = requests.get(f"https://api.telegram.org/bot{TOKEN}/getUpdates", timeout=30).json()
+        if not r.get("ok"):
+            print(f"Telegram відповів помилкою: {r.get('description')}")
+        print(f"Оновлень від Telegram: {len(r.get('result', []))}")
         for upd in r.get("result", []):
             chat = (upd.get("message") or {}).get("chat") or {}
             if chat.get("type") == "private":
