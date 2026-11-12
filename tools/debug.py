@@ -22,3 +22,16 @@ with sync_playwright() as p:
     (out / "network.txt").write_text("\n".join(log), encoding="utf-8")
     b.close()
 print(json.dumps(info, ensure_ascii=False))
+
+import re
+html = (out / "page.html").read_text(encoding="utf-8")
+print("HTML len", len(html))
+for kw in ["DisconSchedule", "getHomeNum", "/ajax", "csrf", "streets", "sub_type_reason", "preset", "fact", "Дніпровськ"]:
+    for m in list(re.finditer(re.escape(kw), html))[:3]:
+        print(f"--- {kw} @{m.start()}:", html[max(0, m.start()-200):m.start()+300].replace("\n", " "))
+print("=== NETWORK")
+print("\n".join(l for l in (out / "network.txt").read_text().splitlines() if not re.search(r"\.(png|jpe?g|svg|woff2?|css|gif|webp|ico)", l)))
+tg = (out / "tg.html").read_text(encoding="utf-8")
+print("=== TG len", len(tg))
+for m in list(re.finditer(r'tgme_widget_message_text[^>]*>(.*?)</div>', tg, re.S))[-6:]:
+    print("POST:", re.sub(r"<[^>]+>", " ", m.group(1))[:300])
