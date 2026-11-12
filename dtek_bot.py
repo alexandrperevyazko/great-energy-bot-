@@ -210,6 +210,29 @@ def save_state(state):
     STATE_FILE.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def resolve_chat_id(state):
+    """Якщо TELEGRAM_CHAT_ID не задано, беремо чат того, хто написав боту /start."""
+    global CHAT_ID
+    if CHAT_ID or not TOKEN:
+        return
+    if state.get("chat_id"):
+        CHAT_ID = str(state["chat_id"])
+        return
+    try:
+        r = requests.get(f"https://api.telegram.org/bot{TOKEN}/getUpdates", timeout=30).json()
+        for upd in r.get("result", []):
+            chat = (upd.get("message") or {}).get("chat") or {}
+            if chat.get("type") == "private":
+                CHAT_ID = str(chat["id"])
+                state["chat_id"] = chat["id"]
+                send_telegram("👋 Вітаю! Це Great Energy 15є. Надсилатиму графік відключень "
+                              "для наб. Дніпровська, 15є і повідомлення, коли світло зникає чи з'являється.")
+                return
+        print("Напишіть боту /start, щоб він дізнався, куди надсилати повідомлення.")
+    except Exception as e:
+        print(f"getUpdates: {e}", file=sys.stderr)
+
+
 def send_telegram(text):
     if not TOKEN or not CHAT_ID:
         print("TELEGRAM_TOKEN / TELEGRAM_CHAT_ID не задані. Повідомлення:\n" + text)
@@ -286,6 +309,10 @@ def check_channel(state):
 
 def check_once(force=False):
     state = load_state()
+    resolve_chat_id(state)
+    if not CHAT_ID:
+        save_state(state)
+        return
     check_channel(state)
     save_state(state)
     # графік ДТЕК перевіряємо не частіше ніж раз на годину

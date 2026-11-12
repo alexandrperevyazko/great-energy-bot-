@@ -21,7 +21,7 @@ python dtek_bot.py --test   (має прийти повідомлення)
 
 ## 3. Запуск у GitHub Actions (основний спосіб)
 1. Settings → Secrets and variables → Actions → New repository secret:
-   `TELEGRAM_TOKEN` і `TELEGRAM_CHAT_ID`.
+   `TELEGRAM_TOKEN` (`TELEGRAM_CHAT_ID` необов'язковий: бот сам візьме чат того, хто написав йому /start).
 2. Actions → «Great Energy 15є» → Run workflow (можна поставити галочку force, щоб одразу отримати графік).
 3. Далі працює сам: кожні 15 хв перевіряє канал, раз на годину графік ДТЕК.
    Стан зберігається у `state.json` у репозиторії.
