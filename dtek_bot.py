@@ -150,7 +150,7 @@ def intervals(hours: dict):
 
 
 def hhmm(half):
-    return f"{half // 2:02d}:{'30' if half % 2 else '00'}"
+    return "24:00" if half == 48 else f"{half // 2:02d}:{'30' if half % 2 else '00'}"
 
 
 def format_day(hours):
@@ -160,7 +160,9 @@ def format_day(hours):
             lines.append(f"🔴 {hhmm(a)}–{hhmm(b)} немає світла")
         elif state == "maybe":
             lines.append(f"🟡 {hhmm(a)}–{hhmm(b)} можливе відключення")
-    return "\n".join(lines) if lines else "🟢 Відключень не заплановано"
+        else:
+            lines.append(f"🟢 {hhmm(a)}–{hhmm(b)} світло є")
+    return "\n".join(lines)
 
 
 def build_message(res):
