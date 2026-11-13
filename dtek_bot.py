@@ -165,19 +165,20 @@ def format_day(hours):
     return "\n".join(lines)
 
 
-def build_message(res):
+def build_sections(res):
+    """Повертає (заголовок, {ключ: текст секції}, підвал). Ключ – дата дня або "now"."""
     home = res["home"] or {}
     groups = home.get("sub_type_reason") or []
     group = groups[0] if groups else None
     head = f"📍 Київ, {res['street']}, {res['house']}"
     if group:
         head += f"\nЧерга: {group.replace('GPV', '')}"
-    parts = [head]
+    sections = {}
 
     # Поточне (аварійне/планове) відключення саме зараз
     if home.get("sub_type") or home.get("start_date"):
-        parts.append(f"⚠️ Зараз: {home.get('sub_type', 'відключення')}"
-                     f"\nз {home.get('start_date', '?')} до {home.get('end_date', '?')}")
+        sections["now"] = (f"⚠️ Зараз: {home.get('sub_type', 'відключення')}"
+                           f"\nз {home.get('start_date', '?')} до {home.get('end_date', '?')}")
 
     fact = res.get("fact") or {}
     days = (fact.get("data") or {}) if isinstance(fact, dict) else {}
@@ -188,16 +189,31 @@ def build_message(res):
                 continue
             d = datetime.fromtimestamp(int(ts), timezone(timedelta(hours=2)))
             # timestamp ДТЕК – північ за Києвом; беремо дату з невеликим зсувом
-            d = (d + timedelta(hours=3)).date()
-            parts.append(f"📅 {d.strftime('%d.%m.%Y')}\n{format_day(day_hours)}")
-    elif not group:
-        parts.append("Для адреси не вказано черги на сайті.")
-    else:
-        parts.append("Графіка на найближчі дні на сайті поки немає.")
+            d = (d + timedelta(hours=3)).date().strftime('%d.%m.%Y')
+            sections[d] = f"📅 {d}\n{format_day(day_hours)}"
 
-    if fact.get("update"):
-        parts.append(f"🕒 Оновлено ДТЕК: {fact['update']}")
+    footer = f"🕒 Оновлено ДТЕК: {fact['update']}" if fact.get("update") else ""
+    return head, sections, footer
+
+
+def build_message(head, sections, footer, keys):
+    parts = [head] + [sections[k] for k in keys]
+    if footer:
+        parts.append(footer)
     return "\n\n".join(parts)
+
+
+def sha(text):
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def old_sections_from_message(msg):
+    """Міграція зі старого формату стану: дістати секції днів з останнього повідомлення."""
+    out = {}
+    for block in (msg or "").split("\n\n"):
+        if block.startswith("📅 "):
+            out[block.splitlines()[0][2:].strip()] = sha(block)
+    return out
 
 
 # ---------- стан і Telegram ----------
@@ -329,20 +345,24 @@ def check_once(force=False):
         return
     res = fetch_schedule()
     state["schedule_checked_at"] = int(time.time())
-    msg = build_message(res)
-    # порівнюємо без рядка «Оновлено», щоб не слати те саме
-    core = "\n".join(l for l in msg.splitlines() if not l.startswith("🕒"))
-    digest = hashlib.sha256(core.encode("utf-8")).hexdigest()
-    if force or state.get("digest") != digest:
+    head, sections, footer = build_sections(res)
+    if "sections" not in state:
+        state["sections"] = old_sections_from_message(state.get("message"))
+    sent = state["sections"]
+    # публікуємо лише нові або змінені дні; зникнення старого дня – не привід писати
+    changed = list(sections) if force else [k for k, t in sections.items() if sent.get(k) != sha(t)]
+    if changed:
+        msg = build_message(head, sections, footer, changed)
         if not send_telegram(msg):
             save_state(state)
             return
-        state.update({"digest": digest, "message": msg, "sent_at": kyiv_now().isoformat()})
-        save_state(state)
-        print("Графік змінився, повідомлення надіслано.")
+        state.update({"message": msg, "sent_at": kyiv_now().isoformat()})
+        print(f"Нове в графіку: {', '.join(changed)} – надіслано.")
     else:
-        save_state(state)
         print("Без змін.")
+    state["sections"] = {k: sha(t) for k, t in sections.items()}
+    state.pop("digest", None)
+    save_state(state)
 
 
 def main():
